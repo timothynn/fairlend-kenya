@@ -1,0 +1,165 @@
+{
+  description = "FairLend Kenya - Synthetic Data for Inclusive Credit Models";
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    flake-utils.url = "github:numtide/flake-utils";
+  };
+
+  outputs = { self, nixpkgs, flake-utils }:
+    flake-utils.lib.eachDefaultSystem (system:
+      let
+        pkgs = nixpkgs.legacyPackages.${system};
+        
+        pythonEnv = pkgs.python311.withPackages (ps: with ps; [
+          # Core data science
+          pandas
+          numpy
+          scikit-learn
+          scipy
+          
+          # Machine Learning
+          torch
+          torchvision
+          pytorch-lightning
+          
+          # AI Fairness
+          aif360
+          shap
+          
+          # Synthetic Data
+          sdv
+          ctgan
+          
+          # Visualization
+          matplotlib
+          seaborn
+          plotly
+          
+          # Jupyter
+          jupyter
+          notebook
+          ipykernel
+          
+          # Web framework for demo
+          streamlit
+          flask
+          
+          # Development tools
+          black
+          pylint
+          pytest
+          python-lsp-server
+          
+          # Additional utilities
+          requests
+          tqdm
+          pyyaml
+        ]);
+        
+        fairlend-package = pkgs.stdenv.mkDerivation {
+          pname = "fairlend-kenya";
+          version = "0.1.0";
+          src = ./.;
+          
+          buildInputs = [ pythonEnv ];
+          
+          installPhase = ''
+            mkdir -p $out/bin $out/lib
+            cp -r . $out/lib/fairlend
+            
+            # Create startup script for the demo
+            cat > $out/bin/fairlend-demo <<EOF
+            #!${pkgs.bash}/bin/bash
+            cd $out/lib/fairlend/demo
+            ${pythonEnv}/bin/streamlit run app.py
+            EOF
+            chmod +x $out/bin/fairlend-demo
+            
+            # Create startup script for Jupyter
+            cat > $out/bin/fairlend-notebook <<EOF
+            #!${pkgs.bash}/bin/bash
+            cd $out/lib/fairlend
+            ${pythonEnv}/bin/jupyter notebook
+            EOF
+            chmod +x $out/bin/fairlend-notebook
+          '';
+        };
+
+      in {
+        packages = {
+          default = fairlend-package;
+          fairlend = fairlend-package;
+        };
+
+        devShells.default = pkgs.mkShell {
+          buildInputs = [
+            pythonEnv
+            pkgs.git
+            pkgs.which
+            pkgs.figlet
+          ];
+
+          shellHook = ''
+            figlet "FairLend Kenya"
+            echo "🚀 Synthetic Data for Inclusive Credit Models"
+            echo ""
+            echo "Available commands:"
+            echo "  fairlend-demo      - Launch Streamlit demo"
+            echo "  fairlend-notebook  - Launch Jupyter notebook"
+            echo "  pytest tests/      - Run test suite"
+            echo ""
+            echo "Python environment ready with all dependencies!"
+            export PYTHONPATH=$PWD/src:$PYTHONPATH
+          '';
+        };
+
+        apps = {
+          demo = {
+            type = "app";
+            program = "${fairlend-package}/bin/fairlend-demo";
+          };
+          
+          notebook = {
+            type = "app";
+            program = "${fairlend-package}/bin/fairlend-notebook";
+          };
+          
+          tests = {
+            type = "app";
+            program = let
+              test-script = pkgs.writeShellScript "run-tests" ''
+                ${pythonEnv}/bin/python -m pytest tests/ -v
+              '';
+            in "${test-script}";
+          };
+        };
+
+        # Development environment for hacking on the project
+        devShell = pkgs.mkShell {
+          buildInputs = [
+            pythonEnv
+            pkgs.nodejs  # For any JavaScript components
+            pkgs.pandoc  # For documentation
+            pkgs.texlive.combined.scheme-small  # For PDF generation
+          ];
+
+          shellHook = ''
+            export PYTHONPATH=$PWD/src:$PYTHONPATH
+            
+            # Create necessary directories if they don't exist
+            mkdir -p data/raw data/processed data/synthetic
+            mkdir -p notebooks tests docs/presentation demo/assets/images
+            
+            echo "🔧 FairLend development environment activated!"
+            echo "📁 PYTHONPATH set to include ./src"
+            echo ""
+            echo "Quick start:"
+            echo "  streamlit run demo/app.py    # Launch demo"
+            echo "  jupyter notebook            # Launch notebooks"
+            echo "  python -m pytest tests/     # Run tests"
+          '';
+        };
+      }
+    );
+}
