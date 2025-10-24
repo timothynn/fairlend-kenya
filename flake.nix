@@ -11,6 +11,7 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
         
+        # Python environment with all required dependencies
         pythonEnv = pkgs.python311.withPackages (ps: with ps; [
           # Core data science
           pandas
@@ -21,15 +22,9 @@
           # Machine Learning
           torch
           torchvision
-          pytorch-lightning
           
-          # AI Fairness
-          aif360
-          shap
-          
-          # Synthetic Data
-          sdv
-          ctgan
+          # Synthetic Data Generation
+          # Note: sdv and ctgan might not be in nixpkgs, will need pip install
           
           # Visualization
           matplotlib
@@ -40,24 +35,28 @@
           jupyter
           notebook
           ipykernel
+          ipython
           
           # Web framework for demo
           streamlit
-          flask
           
           # Development tools
           black
           pylint
           pytest
+          pytest-cov
           python-lsp-server
           
           # Additional utilities
           requests
           tqdm
           pyyaml
+          pip  # For installing packages not in nixpkgs
         ]);
-        
-        fairlend-package = pkgs.stdenv.mkDerivation {
+
+      in {
+        # Default package
+        packages.default = pkgs.stdenv.mkDerivation {
           pname = "fairlend-kenya";
           version = "0.1.0";
           src = ./.;
@@ -71,8 +70,9 @@
             # Create startup script for the demo
             cat > $out/bin/fairlend-demo <<EOF
             #!${pkgs.bash}/bin/bash
-            cd $out/lib/fairlend/demo
-            ${pythonEnv}/bin/streamlit run app.py
+            cd $out/lib/fairlend
+            export PYTHONPATH=$out/lib/fairlend/src:\$PYTHONPATH
+            ${pythonEnv}/bin/streamlit run demo/app.py "\$@"
             EOF
             chmod +x $out/bin/fairlend-demo
             
@@ -80,86 +80,104 @@
             cat > $out/bin/fairlend-notebook <<EOF
             #!${pkgs.bash}/bin/bash
             cd $out/lib/fairlend
-            ${pythonEnv}/bin/jupyter notebook
+            export PYTHONPATH=$out/lib/fairlend/src:\$PYTHONPATH
+            ${pythonEnv}/bin/jupyter notebook "\$@"
             EOF
             chmod +x $out/bin/fairlend-notebook
+            
+            # Create test runner script
+            cat > $out/bin/fairlend-test <<EOF
+            #!${pkgs.bash}/bin/bash
+            cd $out/lib/fairlend
+            export PYTHONPATH=$out/lib/fairlend/src:\$PYTHONPATH
+            ${pythonEnv}/bin/pytest tests/ -v "\$@"
+            EOF
+            chmod +x $out/bin/fairlend-test
           '';
+          
+          meta = with pkgs.lib; {
+            description = "Synthetic Data Generation for Inclusive Credit Risk Assessment in Kenya";
+            homepage = "https://github.com/timothynn/fairlend-kenya";
+            license = licenses.mit;
+            maintainers = [ ];
+          };
         };
 
-      in {
-        packages = {
-          default = fairlend-package;
-          fairlend = fairlend-package;
-        };
-
+        # Development shell
         devShells.default = pkgs.mkShell {
           buildInputs = [
             pythonEnv
             pkgs.git
             pkgs.which
             pkgs.figlet
+            pkgs.pandoc
+            pkgs.texlive.combined.scheme-small
           ];
 
           shellHook = ''
-            figlet "FairLend Kenya"
-            echo "🚀 Synthetic Data for Inclusive Credit Models"
+            # ASCII Art welcome message
+            ${pkgs.figlet}/bin/figlet "FairLend Kenya"
+            echo "🇰🇪 Synthetic Data for Inclusive Credit Models"
             echo ""
-            echo "Available commands:"
-            echo "  fairlend-demo      - Launch Streamlit demo"
-            echo "  fairlend-notebook  - Launch Jupyter notebook"
-            echo "  pytest tests/      - Run test suite"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             echo ""
-            echo "Python environment ready with all dependencies!"
-            export PYTHONPATH=$PWD/src:$PYTHONPATH
-          '';
-        };
-
-        apps = {
-          demo = {
-            type = "app";
-            program = "${fairlend-package}/bin/fairlend-demo";
-          };
-          
-          notebook = {
-            type = "app";
-            program = "${fairlend-package}/bin/fairlend-notebook";
-          };
-          
-          tests = {
-            type = "app";
-            program = let
-              test-script = pkgs.writeShellScript "run-tests" ''
-                ${pythonEnv}/bin/python -m pytest tests/ -v
-              '';
-            in "${test-script}";
-          };
-        };
-
-        # Development environment for hacking on the project
-        devShell = pkgs.mkShell {
-          buildInputs = [
-            pythonEnv
-            pkgs.nodejs  # For any JavaScript components
-            pkgs.pandoc  # For documentation
-            pkgs.texlive.combined.scheme-small  # For PDF generation
-          ];
-
-          shellHook = ''
+            
+            # Set up Python path
             export PYTHONPATH=$PWD/src:$PYTHONPATH
             
             # Create necessary directories if they don't exist
-            mkdir -p data/raw data/processed data/synthetic
+            mkdir -p data/{raw,processed,synthetic}
             mkdir -p notebooks tests docs/presentation demo/assets/images
             
-            echo "🔧 FairLend development environment activated!"
-            echo "📁 PYTHONPATH set to include ./src"
+            # Install additional Python packages not in nixpkgs
+            echo "📦 Installing additional Python packages..."
+            pip install --quiet --user aif360 sdv ctgan shap 2>/dev/null || true
+            
+            echo ""
+            echo "✨ FairLend development environment activated!"
+            echo ""
+            echo "📁 Directory structure created"
+            echo "🐍 PYTHONPATH set to include ./src"
+            echo ""
+            echo "Available commands:"
+            echo "  streamlit run demo/app.py    # Launch Streamlit demo"
+            echo "  jupyter notebook              # Launch Jupyter notebooks"
+            echo "  pytest tests/ -v              # Run test suite"
+            echo "  python -m pytest --cov=src    # Run tests with coverage"
+            echo "  black src/ tests/             # Format code with Black"
+            echo "  pylint src/                   # Lint source code"
             echo ""
             echo "Quick start:"
-            echo "  streamlit run demo/app.py    # Launch demo"
-            echo "  jupyter notebook            # Launch notebooks"
-            echo "  python -m pytest tests/     # Run tests"
+            echo "  cd notebooks && python 01_sample_data_generation.py"
+            echo "  streamlit run demo/app.py"
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           '';
         };
+
+        # Nix apps for easy running
+        apps = {
+          # Run the demo
+          demo = {
+            type = "app";
+            program = "${self.packages.${system}.default}/bin/fairlend-demo";
+          };
+          
+          # Run Jupyter notebook
+          notebook = {
+            type = "app";
+            program = "${self.packages.${system}.default}/bin/fairlend-notebook";
+          };
+          
+          # Run tests
+          test = {
+            type = "app";
+            program = "${self.packages.${system}.default}/bin/fairlend-test";
+          };
+        };
+
+        # Formatter for nix files
+        formatter = pkgs.nixpkgs-fmt;
       }
     );
 }
